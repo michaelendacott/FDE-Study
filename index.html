@@ -25,6 +25,21 @@
   select { max-width: 100%; }
   button:hover { border-color: var(--accent); }
   label { font-size: .9rem; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .sections { position: relative; }
+  .sections summary { list-style: none; font-size: .9rem; padding: 7px 12px; border-radius: 8px;
+                      border: 1px solid var(--border); background: var(--card); cursor: pointer; user-select: none; }
+  .sections summary::-webkit-details-marker { display: none; }
+  .sections summary::after { content: " \25BE"; color: var(--muted); }
+  .sections summary:hover { border-color: var(--accent); }
+  .sections .panel { position: absolute; z-index: 10; top: calc(100% + 4px); left: 0; min-width: 260px;
+                     max-width: min(420px, calc(100vw - 32px)); max-height: 60vh; overflow-y: auto;
+                     background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+                     padding: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.15); }
+  .sections .panel label { display: flex; padding: 5px 6px; border-radius: 6px; align-items: flex-start; }
+  .sections .panel label:hover { background: var(--bg); }
+  .sections .panel input { margin-top: 4px; }
+  .sections .bulk { display: flex; gap: 8px; padding: 2px 6px 8px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
+  .sections .bulk button { padding: 3px 10px; font-size: .8rem; }
   .stats { display: flex; gap: 16px; flex-wrap: wrap; font-size: .9rem; color: var(--muted); margin-bottom: 14px; }
   .stats b.k { color: var(--good); } .stats b.d { color: var(--bad); }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 28px 26px;
@@ -54,7 +69,13 @@
   <p class="sub">Click the card to flip it. Mark each one as known or not known.</p>
 
   <div class="controls">
-    <select id="section"><option value="all">All sections</option></select>
+    <details class="sections" id="sectionMenu">
+      <summary id="sectionLabel">All sections</summary>
+      <div class="panel">
+        <div class="bulk"><button id="secAll">All</button><button id="secNone">None</button></div>
+        <div id="sectionList"></div>
+      </div>
+    </details>
     <select id="filter">
       <option value="all">All cards</option>
       <option value="unmarked">Unmarked only</option>
@@ -89,10 +110,12 @@
 <script>
 const UPSTREAM = 'https://github.com/aishwaryanr/awesome-generative-ai-guide/blob/main/interview_prep/roles/forward-deployed-engineer/';
 const STORE_KEY = 'fde-flashcards-status';
+const SECTIONS_KEY = 'fde-flashcards-sections';
 const $ = id => document.getElementById(id);
 
 let cards = [];        // {id, num, section, question, answer}
 let sections = [];
+let selected = new Set(); // sections currently checked
 let status = load();   // {id: 'known' | 'unknown'}
 let deck = [];         // current ordered list of cards
 let idx = 0;
@@ -103,6 +126,33 @@ function load() {
 }
 function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(status)); } catch {}
+}
+function loadSections() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SECTIONS_KEY));
+    if (Array.isArray(saved)) return new Set(saved.filter(s => sections.includes(s)));
+  } catch {}
+  return new Set(sections);
+}
+function saveSections() {
+  try { localStorage.setItem(SECTIONS_KEY, JSON.stringify([...selected])); } catch {}
+}
+
+function renderSectionList() {
+  $('sectionList').innerHTML = sections.map((s, i) =>
+    `<label><input type="checkbox" data-i="${i}"${selected.has(s) ? ' checked' : ''}> ${esc(s)}</label>`).join('');
+  updateSectionLabel();
+}
+function updateSectionLabel() {
+  const n = selected.size;
+  $('sectionLabel').textContent =
+    n === sections.length ? 'All sections' :
+    n === 0 ? 'No sections' :
+    n === 1 ? [...selected][0] : `${n} of ${sections.length} sections`;
+}
+function setSections(next) {
+  selected = next; saveSections();
+  renderSectionList(); buildDeck();
 }
 
 function esc(s) {
@@ -150,9 +200,9 @@ function shuffle(arr) {
 }
 
 function buildDeck() {
-  const sec = $('section').value, filt = $('filter').value;
+  const filt = $('filter').value;
   deck = cards.filter(c =>
-    (sec === 'all' || c.section === sec) &&
+    selected.has(c.section) &&
     (filt === 'all' || (filt === 'unmarked' ? !status[c.id] : status[c.id] === filt)));
   if ($('shuffle').checked) shuffle(deck); else deck.sort((a, b) => a.num - b.num);
   idx = 0; flipped = false;
@@ -160,8 +210,7 @@ function buildDeck() {
 }
 
 function render() {
-  const sec = $('section').value;
-  const pool = cards.filter(c => sec === 'all' || c.section === sec);
+  const pool = cards.filter(c => selected.has(c.section));
   const k = pool.filter(c => status[c.id] === 'known').length;
   const d = pool.filter(c => status[c.id] === 'unknown').length;
   $('stats').innerHTML =
@@ -209,7 +258,17 @@ function mark(value) {
   }
 }
 
-$('section').addEventListener('change', buildDeck);
+$('sectionList').addEventListener('change', e => {
+  const s = sections[e.target.dataset.i];
+  if (e.target.checked) selected.add(s); else selected.delete(s);
+  saveSections(); updateSectionLabel(); buildDeck();
+});
+$('secAll').addEventListener('click', () => setSections(new Set(sections)));
+$('secNone').addEventListener('click', () => setSections(new Set()));
+// Close the section menu when clicking anywhere outside it.
+document.addEventListener('click', e => {
+  if (!e.target.closest('#sectionMenu')) $('sectionMenu').open = false;
+});
 $('filter').addEventListener('change', buildDeck);
 $('shuffle').addEventListener('change', buildDeck);
 $('reshuffle').addEventListener('click', () => { $('shuffle').checked = true; buildDeck(); });
@@ -221,9 +280,9 @@ $('reset').addEventListener('click', e => {
   const b = e.currentTarget;
   if (b.dataset.armed) {
     status = {}; save();
-    $('section').value = 'all'; $('filter').value = 'all';
+    $('filter').value = 'all';
     delete b.dataset.armed; b.textContent = 'Reset everything';
-    buildDeck();
+    setSections(new Set(sections));
   } else {
     b.dataset.armed = '1'; b.textContent = 'Click again to confirm';
     setTimeout(() => { delete b.dataset.armed; b.textContent = 'Reset everything'; }, 3000);
@@ -242,7 +301,8 @@ fetch('forward-deployed-engineer/questions.md')
   .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
   .then(md => {
     cards = parse(md);
-    for (const s of sections) $('section').add(new Option(s, s));
+    selected = loadSections();
+    renderSectionList();
     buildDeck();
   })
   .catch(err => {
