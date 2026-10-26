@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FDE Flashcards</title>
+<title>Study Flashcards</title>
 <style>
   :root {
     --bg: #f5f5f7; --card: #fff; --text: #1d1d1f; --muted: #6e6e73; --border: #d2d2d7;
@@ -34,7 +34,8 @@
   .card.unknown { border-top-color: var(--bad); }
   .meta { font-size: .8rem; color: var(--muted); display: flex; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
   .q { font-size: 1.25rem; font-weight: 600; margin: auto 0; text-align: center; }
-  .a p { margin: 0 0 12px; }
+  .a p, .a ul { margin: 0 0 12px; }
+  .a ul { padding-left: 22px; }
   .a a { color: var(--accent); }
   .a .qsmall { font-weight: 600; color: var(--muted); font-size: .95rem; margin-bottom: 14px; }
   .hint { text-align: center; color: var(--muted); font-size: .8rem; margin-top: 18px; }
@@ -50,10 +51,14 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>Forward-Deployed Engineer Flashcards</h1>
+  <h1 id="title">Flashcards</h1>
   <p class="sub">Click the card to flip it. Mark each one as known or not known.</p>
 
   <div class="controls">
+    <select id="deck">
+      <option value="fde">Forward-Deployed Engineer</option>
+      <option value="swe">Software Engineering</option>
+    </select>
     <select id="section"><option value="all">All sections</option></select>
     <select id="filter">
       <option value="all">All cards</option>
@@ -80,29 +85,44 @@
   </div>
   <div class="keys">Keys: Space = flip &middot; &larr; / &rarr; = prev / next &middot; K = know &middot; D = don't know</div>
 
-  <footer>
-    Questions from <a href="https://github.com/aishwaryanr/awesome-generative-ai-guide/tree/main/interview_prep/roles/forward-deployed-engineer">awesome-generative-ai-guide</a>
-    by Aishwarya Naresh Reganti (MIT License). Source copy lives in <a href="forward-deployed-engineer/questions.md">forward-deployed-engineer/questions.md</a>.
-  </footer>
+  <footer id="footer"></footer>
 </div>
 
 <script>
-const UPSTREAM = 'https://github.com/aishwaryanr/awesome-generative-ai-guide/blob/main/interview_prep/roles/forward-deployed-engineer/';
-const STORE_KEY = 'fde-flashcards-status';
+const DECKS = {
+  fde: {
+    title: 'Forward-Deployed Engineer Flashcards',
+    file: 'forward-deployed-engineer/questions.md',
+    storeKey: 'fde-flashcards-status',
+    upstream: 'https://github.com/aishwaryanr/awesome-generative-ai-guide/blob/main/interview_prep/roles/forward-deployed-engineer/',
+    footer: `Questions from <a href="https://github.com/aishwaryanr/awesome-generative-ai-guide/tree/main/interview_prep/roles/forward-deployed-engineer">awesome-generative-ai-guide</a>
+      by Aishwarya Naresh Reganti (MIT License). Source copy lives in <a href="forward-deployed-engineer/questions.md">forward-deployed-engineer/questions.md</a>.`,
+  },
+  swe: {
+    title: 'Software Engineering Flashcards',
+    file: 'Software-Engineering/questions.md',
+    storeKey: 'swe-flashcards-status',
+    upstream: location.href,
+    footer: `Problems transcribed from the cheatsheet images in <a href="Software-Engineering/">Software-Engineering/</a>.
+      Source lives in <a href="Software-Engineering/questions.md">Software-Engineering/questions.md</a>.`,
+  },
+};
+const DECK_KEY = 'flashcards-deck';
 const $ = id => document.getElementById(id);
 
+let deckId = 'fde';
 let cards = [];        // {id, num, section, question, answer}
 let sections = [];
-let status = load();   // {id: 'known' | 'unknown'}
+let status = {};       // {id: 'known' | 'unknown'}
 let deck = [];         // current ordered list of cards
 let idx = 0;
 let flipped = false;
 
 function load() {
-  try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch { return {}; }
+  try { return JSON.parse(localStorage.getItem(DECKS[deckId].storeKey)) || {}; } catch { return {}; }
 }
 function save() {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(status)); } catch {}
+  try { localStorage.setItem(DECKS[deckId].storeKey, JSON.stringify(status)); } catch {}
 }
 
 function esc(s) {
@@ -113,7 +133,7 @@ function esc(s) {
 function inline(md) {
   return esc(md)
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, href) => {
-      const url = /^https?:/.test(href) ? href : new URL(href, UPSTREAM).href;
+      const url = /^https?:/.test(href) ? href : new URL(href, DECKS[deckId].upstream).href;
       return `<a href="${url}" target="_blank" rel="noopener">${text}</a>`;
     })
     .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
@@ -129,8 +149,7 @@ function parse(md) {
     const s = line.match(/<summary><b>(\d+)\.\s*(.*?)<\/b><\/summary>/);
     if (s) { cur = { id: 'q' + s[1], num: +s[1], section, question: s[2], body: [] }; continue; }
     if (cur && line.trim() === '</details>') {
-      cur.answer = cur.body.join('\n').trim().split(/\n\s*\n/)
-        .map(p => `<p>${inline(p.trim())}</p>`).join('');
+      cur.answer = cur.body.join('\n').trim().split(/\n\s*\n/).map(block).join('');
       delete cur.body;
       out.push(cur);
       cur = null;
@@ -139,6 +158,14 @@ function parse(md) {
     if (cur) cur.body.push(line);
   }
   return out;
+}
+
+// A paragraph, optionally followed by "- " list items.
+function block(p) {
+  const lines = p.trim().split('\n');
+  const text = lines.filter(l => !/^\s*- /.test(l)).join(' ');
+  const items = lines.filter(l => /^\s*- /.test(l)).map(l => `<li>${inline(l.replace(/^\s*- /, ''))}</li>`);
+  return (text ? `<p>${inline(text)}</p>` : '') + (items.length ? `<ul>${items.join('')}</ul>` : '');
 }
 
 function shuffle(arr) {
@@ -209,6 +236,7 @@ function mark(value) {
   }
 }
 
+$('deck').addEventListener('change', () => loadDeck($('deck').value));
 $('section').addEventListener('change', buildDeck);
 $('filter').addEventListener('change', buildDeck);
 $('shuffle').addEventListener('change', buildDeck);
@@ -238,17 +266,36 @@ document.addEventListener('keydown', e => {
   else if (e.key.toLowerCase() === 'd') mark('unknown');
 });
 
-fetch('forward-deployed-engineer/questions.md')
-  .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
-  .then(md => {
-    cards = parse(md);
-    for (const s of sections) $('section').add(new Option(s, s));
-    buildDeck();
-  })
-  .catch(err => {
-    $('cardArea').innerHTML = `<div class="card"><div class="empty">Could not load questions.md (${esc(String(err))}).<br>
-      If you opened this file directly, serve it over HTTP instead (e.g. <code>python3 -m http.server</code>).</div></div>`;
-  });
+function loadDeck(id) {
+  deckId = DECKS[id] ? id : 'fde';
+  try { localStorage.setItem(DECK_KEY, deckId); } catch {}
+  const d = { key: deckId, ...DECKS[deckId] };
+  $('deck').value = deckId;
+  $('title').textContent = d.title;
+  document.title = d.title;
+  $('footer').innerHTML = d.footer;
+  status = load();
+  cards = []; sections = [];
+  const sel = $('section');
+  sel.length = 1; sel.value = 'all';
+  fetch(d.file)
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+    .then(md => {
+      if (deckId !== d.key) return;  // user switched decks while loading
+      cards = parse(md);
+      for (const s of sections) sel.add(new Option(s, s));
+      buildDeck();
+    })
+    .catch(err => {
+      $('nav').hidden = true;
+      $('cardArea').innerHTML = `<div class="card"><div class="empty">Could not load ${esc(d.file)} (${esc(String(err))}).<br>
+        If you opened this file directly, serve it over HTTP instead (e.g. <code>python3 -m http.server</code>).</div></div>`;
+    });
+}
+
+let savedDeck = 'fde';
+try { savedDeck = localStorage.getItem(DECK_KEY) || 'fde'; } catch {}
+loadDeck(savedDeck);
 </script>
 </body>
 </html>
