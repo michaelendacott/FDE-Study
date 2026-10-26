@@ -25,6 +25,21 @@
   select { max-width: 100%; }
   button:hover { border-color: var(--accent); }
   label { font-size: .9rem; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .sections { position: relative; }
+  .sections summary { list-style: none; font-size: .9rem; padding: 7px 12px; border-radius: 8px;
+                      border: 1px solid var(--border); background: var(--card); cursor: pointer; user-select: none; }
+  .sections summary::-webkit-details-marker { display: none; }
+  .sections summary::after { content: " \25BE"; color: var(--muted); }
+  .sections summary:hover { border-color: var(--accent); }
+  .sections .panel { position: absolute; z-index: 10; top: calc(100% + 4px); left: 0; min-width: 260px;
+                     max-width: min(420px, calc(100vw - 32px)); max-height: 60vh; overflow-y: auto;
+                     background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+                     padding: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.15); }
+  .sections .panel label { display: flex; padding: 5px 6px; border-radius: 6px; align-items: flex-start; }
+  .sections .panel label:hover { background: var(--bg); }
+  .sections .panel input { margin-top: 4px; }
+  .sections .bulk { display: flex; gap: 8px; padding: 2px 6px 8px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
+  .sections .bulk button { padding: 3px 10px; font-size: .8rem; }
   .stats { display: flex; gap: 16px; flex-wrap: wrap; font-size: .9rem; color: var(--muted); margin-bottom: 14px; }
   .stats b.k { color: var(--good); } .stats b.d { color: var(--bad); }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 28px 26px;
@@ -177,9 +192,9 @@ function shuffle(arr) {
 }
 
 function buildDeck() {
-  const sec = $('section').value, filt = $('filter').value;
+  const filt = $('filter').value;
   deck = cards.filter(c =>
-    (sec === 'all' || c.section === sec) &&
+    selected.has(c.section) &&
     (filt === 'all' || (filt === 'unmarked' ? !status[c.id] : status[c.id] === filt)));
   if ($('shuffle').checked) shuffle(deck); else deck.sort((a, b) => a.num - b.num);
   idx = 0; flipped = false;
@@ -187,8 +202,7 @@ function buildDeck() {
 }
 
 function render() {
-  const sec = $('section').value;
-  const pool = cards.filter(c => sec === 'all' || c.section === sec);
+  const pool = cards.filter(c => selected.has(c.section));
   const k = pool.filter(c => status[c.id] === 'known').length;
   const d = pool.filter(c => status[c.id] === 'unknown').length;
   $('stats').innerHTML =
@@ -249,9 +263,9 @@ $('reset').addEventListener('click', e => {
   const b = e.currentTarget;
   if (b.dataset.armed) {
     status = {}; save();
-    $('section').value = 'all'; $('filter').value = 'all';
+    $('filter').value = 'all';
     delete b.dataset.armed; b.textContent = 'Reset everything';
-    buildDeck();
+    setSections(new Set(sections));
   } else {
     b.dataset.armed = '1'; b.textContent = 'Click again to confirm';
     setTimeout(() => { delete b.dataset.armed; b.textContent = 'Reset everything'; }, 3000);
