@@ -74,7 +74,13 @@
       <option value="fde">Forward-Deployed Engineer</option>
       <option value="swe">Software Engineering</option>
     </select>
-    <select id="section"><option value="all">All sections</option></select>
+    <details class="sections" id="sectionMenu">
+      <summary id="sectionLabel">All sections</summary>
+      <div class="panel">
+        <div class="bulk"><button id="secAll">All</button><button id="secNone">None</button></div>
+        <div id="sectionList"></div>
+      </div>
+    </details>
     <select id="filter">
       <option value="all">All cards</option>
       <option value="unmarked">Unmarked only</option>
@@ -109,6 +115,7 @@ const DECKS = {
     title: 'Forward-Deployed Engineer Flashcards',
     file: 'forward-deployed-engineer/questions.md',
     storeKey: 'fde-flashcards-status',
+    sectionsKey: 'fde-flashcards-sections',
     upstream: 'https://github.com/aishwaryanr/awesome-generative-ai-guide/blob/main/interview_prep/roles/forward-deployed-engineer/',
     footer: `Questions from <a href="https://github.com/aishwaryanr/awesome-generative-ai-guide/tree/main/interview_prep/roles/forward-deployed-engineer">awesome-generative-ai-guide</a>
       by Aishwarya Naresh Reganti (MIT License). Source copy lives in <a href="forward-deployed-engineer/questions.md">forward-deployed-engineer/questions.md</a>.`,
@@ -117,6 +124,7 @@ const DECKS = {
     title: 'Software Engineering Flashcards',
     file: 'Software-Engineering/questions.md',
     storeKey: 'swe-flashcards-status',
+    sectionsKey: 'swe-flashcards-sections',
     upstream: location.href,
     footer: `Problems transcribed from the cheatsheet images in <a href="Software-Engineering/">Software-Engineering/</a>.
       Source lives in <a href="Software-Engineering/questions.md">Software-Engineering/questions.md</a>.`,
@@ -128,6 +136,7 @@ const $ = id => document.getElementById(id);
 let deckId = 'fde';
 let cards = [];        // {id, num, section, question, answer}
 let sections = [];
+let selected = new Set(); // sections currently checked
 let status = {};       // {id: 'known' | 'unknown'}
 let deck = [];         // current ordered list of cards
 let idx = 0;
@@ -138,6 +147,34 @@ function load() {
 }
 function save() {
   try { localStorage.setItem(DECKS[deckId].storeKey, JSON.stringify(status)); } catch {}
+}
+
+function loadSections() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DECKS[deckId].sectionsKey));
+    if (Array.isArray(saved)) return new Set(saved.filter(s => sections.includes(s)));
+  } catch {}
+  return new Set(sections);
+}
+function saveSections() {
+  try { localStorage.setItem(DECKS[deckId].sectionsKey, JSON.stringify([...selected])); } catch {}
+}
+
+function renderSectionList() {
+  $('sectionList').innerHTML = sections.map((s, i) =>
+    `<label><input type="checkbox" data-i="${i}"${selected.has(s) ? ' checked' : ''}> ${esc(s)}</label>`).join('');
+  updateSectionLabel();
+}
+function updateSectionLabel() {
+  const n = selected.size;
+  $('sectionLabel').textContent =
+    n === sections.length ? 'All sections' :
+    n === 0 ? 'No sections' :
+    n === 1 ? [...selected][0] : `${n} of ${sections.length} sections`;
+}
+function setSections(next) {
+  selected = next; saveSections();
+  renderSectionList(); buildDeck();
 }
 
 function esc(s) {
@@ -251,7 +288,17 @@ function mark(value) {
 }
 
 $('deck').addEventListener('change', () => loadDeck($('deck').value));
-$('section').addEventListener('change', buildDeck);
+$('sectionList').addEventListener('change', e => {
+  const s = sections[e.target.dataset.i];
+  if (e.target.checked) selected.add(s); else selected.delete(s);
+  saveSections(); updateSectionLabel(); buildDeck();
+});
+$('secAll').addEventListener('click', () => setSections(new Set(sections)));
+$('secNone').addEventListener('click', () => setSections(new Set()));
+// Close the section menu when clicking anywhere outside it.
+document.addEventListener('click', e => {
+  if (!e.target.closest('#sectionMenu')) $('sectionMenu').open = false;
+});
 $('filter').addEventListener('change', buildDeck);
 $('shuffle').addEventListener('change', buildDeck);
 $('reshuffle').addEventListener('click', () => { $('shuffle').checked = true; buildDeck(); });
@@ -289,15 +336,16 @@ function loadDeck(id) {
   document.title = d.title;
   $('footer').innerHTML = d.footer;
   status = load();
-  cards = []; sections = [];
-  const sel = $('section');
-  sel.length = 1; sel.value = 'all';
+  cards = []; sections = []; selected = new Set();
+  $('sectionList').innerHTML = '';
+  $('sectionLabel').textContent = 'All sections';
   fetch(d.file)
     .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
     .then(md => {
       if (deckId !== d.key) return;  // user switched decks while loading
       cards = parse(md);
-      for (const s of sections) sel.add(new Option(s, s));
+      selected = loadSections();
+      renderSectionList();
       buildDeck();
     })
     .catch(err => {
